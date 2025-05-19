@@ -1,14 +1,23 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from g4f.client import Client
 from g4f.Provider import DeepInfraChat
-import sys
 
 app = FastAPI()
+
+# Allow all CORS origins (WARNING: use cautiously in production)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 client = Client()
 
-# Pydantic model for request body
 class ChatRequest(BaseModel):
     model: str
     messages: list
