@@ -1,65 +1,55 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import StreamingResponse, JSONResponse
+# Import necessary modules from FastAPI and related packages
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict
+
+# Import g4f (unofficial ChatGPT wrapper) and provider
 from g4f.client import Client
 from g4f.Provider import DeepInfraChat
-import logging
-import asyncio
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
+# Create a FastAPI app instance
 app = FastAPI()
 
-# Allow all origins (for development and open access)
+# Configure CORS middleware to allow requests from all origins (useful for development)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # In production, specify allowed domains for security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize the g4f client
+# Initialize the g4f client for making chat requests
 client = Client()
 
-# Define the request schema
+# Define the expected structure of the incoming chat request using Pydantic
 class ChatRequest(BaseModel):
-    model: str
-    messages: List[Dict[str, str]]  # [{"role": "user", "content": "Hello"}]
+    model: str  # The model name to use (e.g., "gpt-3.5-turbo")
+    messages: List[Dict[str, str]]  # A list of message dictionaries with "role" and "content"
 
+# Define a POST endpoint for streaming chat responses
 @app.post("/chat/stream")
-async def stream_chat(chat_request: ChatRequest):
-    async def generate():
+async def stream_chat(request: ChatRequest):
+    # Generator function to stream content as it's received
+    def generate():
         try:
+            # Create a streaming chat completion using the specified provider and model
             stream_response = client.chat.completions.create(
-                provider=DeepInfraChat,
-                model=chat_request.model,
-                messages=chat_request.messages,
-                stream=True
+                provider=DeepInfraChat,      # Provider used for the model
+                model=request.model,         # Model name from request
+                messages=request.messages,   # Chat history from request
+                stream=True                  # Enable streaming response
             )
+            # Iterate over streamed chunks of the response
             for chunk in stream_response:
-                try:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        yield chunk.choices[0].delta.content
-                        await asyncio.sleep(0.01)  # Optional: To smooth streaming
-                except Exception as chunk_err:
-                    logger.error(f"Chunk processing error: {chunk_err}")
-                    yield f"\n[STREAM CHUNK ERROR]: {str(chunk_err)}\n"
+                if chunk.choices and chunk.choices[0].delta.content:
+                    # Yield the content of the chunk as it's received
+                    yield chunk.choices[0].delta.content
         except Exception as e:
-            logger.error(f"Streaming failed: {e}")
-            yield f"\n[STREAM ERROR]: {str(e)}\n"
+            # If there's an error, yield an error message
+            yield f"\n[ERROR]: {str(e)}\n"
 
+    # Return a streaming response with MIME type 'text/plain'
     return StreamingResponse(generate(), media_type="text/plain")
-
-# Custom exception handler (optional but good for all other routes)
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.exception(f"Unhandled error: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Internal Server Error", "message": str(exc)}
-    )
